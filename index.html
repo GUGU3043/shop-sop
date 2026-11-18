@@ -88,13 +88,13 @@
   .editor-title-area p { font-size: 0.85rem; color: var(--pink-muted); margin-top: 4px; }
   .editor-header-actions { display: flex; gap: 8px; flex-wrap: wrap;}
 
-  .toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;}
+  .toolbar-hint { font-size: 0.78rem; color: var(--pink-muted); }
   
   .editor-split { display: flex; gap: 16px; flex: 1; min-height: 500px; }
   .editor-pane { flex: 1; display: flex; flex-direction: column; }
   .preview-pane { flex: 1; display: flex; flex-direction: column; }
   .pane-label { font-size: 0.85rem; font-weight: 600; color: var(--pink-muted); margin-bottom: 8px; display: flex; justify-content: space-between;}
-  .drag-hint { font-size: 0.75rem; color: var(--pink-main); font-weight: normal; }
   
   textarea#sopText {
     flex: 1; width: 100%; border: 1.5px solid var(--pink-soft); border-radius: var(--radius-md);
@@ -109,12 +109,12 @@
     border-radius: var(--radius-md); overflow-y: auto; word-break: break-word; transition: border-color 0.2s, background 0.2s;
   }
   
-  /* 拖拽高亮效果 */
   .drag-over-active {
     border-color: var(--pink-main) !important;
     background: var(--pink-soft) !important;
   }
 
+  /* 预览区图片样式 */
   .sop-preview-box img { max-width: 100%; border-radius: 12px; margin: 12px 0; display: block; box-shadow: var(--shadow-soft); cursor: zoom-in;}
   
   .sop-preview-box .file-attachment { margin: 12px 0; }
@@ -125,8 +125,21 @@
   }
   .sop-preview-box .file-attachment a:hover { background: #efc4ca; }
 
-  .editor-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px; }
+  .editor-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px; align-items: center;}
+  .save-hint { font-size: 0.8rem; color: var(--pink-muted); margin-right: auto; padding-left: 4px;}
 
+  /* 图片全屏灯箱 */
+  #imageLightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out;
+  }
+  #imageLightbox img {
+    max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    animation: zoomIn 0.2s ease;
+  }
+  @keyframes zoomIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* 弹窗 */
   .modal-mask {
     position: fixed; inset: 0; background: rgba(92, 64, 72, 0.35); backdrop-filter: blur(3px);
     display: flex; align-items: center; justify-content: center; padding: 18px; z-index: 100;
@@ -160,10 +173,12 @@
   @media (max-width: 850px) {
     .layout { flex-direction: column; }
     .sidebar { width: 100%; max-height: 350px; position: static; }
-    .main-content { min-height: 600px; }
+    .main-content { min-height: 600px; padding: 16px; }
     .editor-split.is-editing { flex-direction: column; }
     textarea#sopText { min-height: 250px; }
-    .sop-preview-box { min-height: 250px; }
+    .sop-preview-box { min-height: 250px; padding: 12px;}
+    .toolbar { gap: 6px;}
+    .toolbar .btn { flex: 1; font-size: 0.75rem; padding: 6px 8px; }
   }
 </style>
 </head>
@@ -207,18 +222,19 @@
         </div>
 
         <div class="toolbar d-none" id="toolbar">
-          <button class="btn btn-ghost btn-sm" id="btnUploadImg" type="button">📷 插入图片</button>
-          <button class="btn btn-ghost btn-sm" id="btnUploadFile" type="button">📎 放置文件</button>
+          <button class="btn btn-ghost btn-sm" id="btnUploadImg" type="button">📷 上传</button>
+          <button class="btn btn-ghost btn-sm" id="btnUploadFile" type="button">📎 文件</button>
           <input type="file" id="fileInput" style="display: none;">
+          <span class="toolbar-hint">支持直接按 Ctrl+V 粘贴图片</span>
         </div>
 
         <div class="editor-split" id="editorSplit">
           <div class="editor-pane d-none" id="editorPane">
             <div class="pane-label">
               <span>SOP 内容编辑（支持HTML）</span>
-              <span class="drag-hint">也可以直接把图片/文件拖拽到这里</span>
+              <span class="toolbar-hint">可拖拽图片到这里</span>
             </div>
-            <textarea id="sopText" placeholder="填写该事项的标准操作流程，或拖拽上传图文…"></textarea>
+            <textarea id="sopText" placeholder="填写该事项的标准操作流程，或在此按 Ctrl+V 粘贴截图…"></textarea>
           </div>
           
           <div class="preview-pane">
@@ -228,6 +244,7 @@
         </div>
 
         <div class="editor-footer d-none" id="editorFooter">
+          <span class="save-hint">快捷键：Ctrl + S 保存</span>
           <button class="btn btn-ghost" id="btnCancelEdit">取消</button>
           <button class="btn btn-primary" id="sopSave">保存 SOP</button>
         </div>
@@ -252,6 +269,11 @@
       <button class="btn btn-primary" id="itemSave">保存</button>
     </div>
   </div>
+</div>
+
+<!-- 图片放大镜（全屏预览） -->
+<div id="imageLightbox">
+  <img id="lightboxImg" src="" alt="预览大图">
 </div>
 
 <div class="toast" id="toast"></div>
@@ -294,6 +316,9 @@
   const btnUploadImg = document.getElementById('btnUploadImg');
   const btnUploadFile = document.getElementById('btnUploadFile');
   const fileInput = document.getElementById('fileInput');
+
+  const imageLightbox = document.getElementById('imageLightbox');
+  const lightboxImg = document.getElementById('lightboxImg');
 
   const itemModalMask = document.getElementById('itemModalMask');
   const itemModalTitle = document.getElementById('itemModalTitle');
@@ -405,7 +430,7 @@
     editorFooter.classList.remove('d-none');
     editorSplit.classList.add('is-editing');
     
-    previewLabel.innerHTML = '实时预览（所见即所得） <span class="drag-hint">可直接拖拽到此区域</span>';
+    previewLabel.innerHTML = '实时预览（所见即所得） <span class="toolbar-hint">可直接拖拽到此区域</span>';
     sopText.focus();
   }
 
@@ -435,13 +460,13 @@
   });
 
   // ====== 通用文件上传处理 ======
-  async function handleFileUpload(file) {
+  async function handleFileUpload(file, customName = '') {
     const isImage = file.type.startsWith('image/');
     
     showToast(isImage ? '正在上传图片…' : '正在上传文件…');
 
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+    const fileExt = isImage && !file.name ? 'png' : file.name.split('.').pop();
+    const fileName = customName || `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
 
     const { error } = await supabaseClient.storage.from('sop_files').upload(fileName, file);
 
@@ -455,9 +480,10 @@
 
     let insertHtml = '';
     if (isImage) {
-      insertHtml = `\n<img src="${publicUrl}" alt="${file.name}">\n`;
+      insertHtml = `\n<img src="${publicUrl}" alt="图片">\n`;
     } else {
-      insertHtml = `\n<div class="file-attachment"><a href="${publicUrl}" target="_blank">📥 下载文件：${file.name}</a></div>\n`;
+      const displayName = customName || file.name || '下载文件';
+      insertHtml = `\n<div class="file-attachment"><a href="${publicUrl}" target="_blank">📥 下载文件：${displayName}</a></div>\n`;
     }
 
     // 插入到光标位置
@@ -471,7 +497,7 @@
     showToast('上传成功！已插入');
   }
 
-  // 点击按钮上传
+  // 按钮上传
   btnUploadImg.addEventListener('click', () => { fileInput.accept = 'image/*'; fileInput.click(); });
   btnUploadFile.addEventListener('click', () => { fileInput.accept = ''; fileInput.click(); });
   fileInput.addEventListener('change', async (e) => {
@@ -481,13 +507,29 @@
     }
   });
 
+  // ✨ 核心：粘贴上传（处理截图和复制的图片）
+  sopText.addEventListener('paste', async (e) => {
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault(); // 阻止默认粘贴行为
+        const file = items[i].getAsFile();
+        if (file) {
+          // 用时间戳作为图片名
+          const name = `粘贴图片_${new Date().toLocaleTimeString().replace(/:/g, '-')}.png`;
+          await handleFileUpload(file, name);
+        }
+        break;
+      }
+    }
+  });
+
   // ====== 拖拽上传逻辑 ======
   const dropZones = [editorPane, sopPreview];
-
   dropZones.forEach(zone => {
     zone.addEventListener('dragover', (e) => {
       e.preventDefault();
-      if (!isEditing) return; // 只在编辑模式下允许拖拽
+      if (!isEditing) return;
       zone.classList.add('drag-over-active');
       if (zone === editorPane) sopText.classList.add('drag-over-active');
     });
@@ -510,7 +552,6 @@
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-        // 如果拖拽了多个文件，逐个上传
         for (let i = 0; i < files.length; i++) {
           await handleFileUpload(files[i]);
         }
@@ -518,6 +559,30 @@
     });
   });
 
+  // ⌨️ 快捷键 Ctrl+S / Cmd+S 保存
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (isEditing) {
+        e.preventDefault(); // 阻止浏览器默认的保存网页行为
+        sopSave.click();
+      }
+    }
+  });
+
+  // 🔍 图片放大灯箱逻辑
+  sopPreview.addEventListener('click', (e) => {
+    if (e.target.tagName === 'IMG') {
+      lightboxImg.src = e.target.src;
+      imageLightbox.style.display = 'flex';
+    }
+  });
+
+  imageLightbox.addEventListener('click', () => {
+    imageLightbox.style.display = 'none';
+    lightboxImg.src = '';
+  });
+
+  // 保存逻辑
   sopSave.addEventListener('click', async () => {
     if (currentItemId == null) return;
     sopSave.disabled = true;
