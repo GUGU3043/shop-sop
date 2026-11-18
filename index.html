@@ -460,13 +460,19 @@
   });
 
   // ====== 通用文件上传处理 ======
-  async function handleFileUpload(file, customName = '') {
+  async function handleFileUpload(file) {
     const isImage = file.type.startsWith('image/');
     
     showToast(isImage ? '正在上传图片…' : '正在上传文件…');
 
-    const fileExt = isImage && !file.name ? 'png' : file.name.split('.').pop();
-    const fileName = customName || `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+    // 获取扩展名，如果没有则默认给个 png 或者 bin
+    let fileExt = 'png';
+    if (file.name && file.name.includes('.')) {
+        fileExt = file.name.split('.').pop();
+    }
+
+    // 核心修复：只使用时间戳+随机数生成纯英文数字的文件名，避开中文报错
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
 
     const { error } = await supabaseClient.storage.from('sop_files').upload(fileName, file);
 
@@ -482,7 +488,8 @@
     if (isImage) {
       insertHtml = `\n<img src="${publicUrl}" alt="图片">\n`;
     } else {
-      const displayName = customName || file.name || '下载文件';
+      // 下载链接的显示文字可以保留原始的中文文件名
+      const displayName = file.name || '下载文件';
       insertHtml = `\n<div class="file-attachment"><a href="${publicUrl}" target="_blank">📥 下载文件：${displayName}</a></div>\n`;
     }
 
@@ -515,9 +522,8 @@
         e.preventDefault(); // 阻止默认粘贴行为
         const file = items[i].getAsFile();
         if (file) {
-          // 用时间戳作为图片名
-          const name = `粘贴图片_${new Date().toLocaleTimeString().replace(/:/g, '-')}.png`;
-          await handleFileUpload(file, name);
+          // 直接调用 handleFileUpload，不再传中文名称
+          await handleFileUpload(file);
         }
         break;
       }
