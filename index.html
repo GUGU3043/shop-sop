@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>店铺事务 SOP 管理</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- 引入拖拽排序库（已换国内加速节点） -->
+<!-- 引入拖拽排序库（国内加速节点） -->
 <script src="https://cdn.bootcdn.net/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <style>
   :root {
@@ -62,22 +62,37 @@
   
   .category-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; padding-right: 4px; }
   
+  /* 分类标题行优化 */
   .category-group { display: flex; flex-direction: column; gap: 6px; }
   .category-header {
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 0.85rem; font-weight: 600; color: var(--pink-deep);
-    padding: 4px 6px; cursor: pointer; user-select: none;
+    display: flex; align-items: center;
+    font-size: 0.95rem; font-weight: 600; color: var(--pink-deep);
+    padding: 8px 6px; cursor: pointer; user-select: none;
     border-bottom: 1px solid var(--pink-soft);
+    transition: background 0.2s; border-radius: 8px;
   }
-  .category-header span.count { font-size: 0.75rem; font-weight: normal; color: var(--pink-muted); margin-left: auto; margin-right: 4px; }
-  .category-header svg { width: 12px; height: 12px; transition: transform 0.2s; fill: var(--pink-main); }
+  .category-header:hover { background: var(--pink-soft); }
+  
+  /* 放大箭头，并加上右侧间距 */
+  .category-header svg { 
+    width: 18px; height: 18px; margin-right: 6px; flex-shrink: 0;
+    transition: transform 0.2s; fill: var(--pink-main); 
+  }
   .category-group.collapsed .category-header svg { transform: rotate(-90deg); }
   .category-group.collapsed .item-list { display: none; }
 
+  /* 分类名称占满剩余空间，方便点击 */
+  .cat-name { flex: 1; cursor: pointer; }
+  
+  .category-header span.count { 
+    font-size: 0.8rem; font-weight: normal; color: var(--pink-muted); margin-right: 8px; 
+  }
+
   /* 删除分类按钮 */
   .btn-del-cat {
-    font-size: 16px; font-weight: bold; color: var(--pink-muted); cursor: pointer;
-    padding: 0 6px; border-radius: 4px; line-height: 1; opacity: 0.6; transition: all 0.2s;
+    font-size: 18px; font-weight: bold; color: var(--pink-muted); cursor: pointer;
+    padding: 0 6px; border-radius: 4px; line-height: 1; opacity: 0.4; transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
   }
   .btn-del-cat:hover { color: #9e4f5d; background: rgba(217, 154, 166, 0.2); opacity: 1; }
 
@@ -436,9 +451,8 @@
         <div class="category-group" data-cat-id="${cat.id}" data-cat-name="${cat.name}">
           <div class="category-header">
             <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
-            <span class="cat-name" title="双击可重命名" style="cursor: text;">${cat.name}</span>
+            <span class="cat-name" title="单击折叠 / 双击重命名">${cat.name}</span>
             <span class="count">${catItems.length}</span>
-            <!-- 增加了删除小按钮 -->
             <span class="btn-del-cat" title="删除分类" data-cat-name="${cat.name}">×</span>
           </div>
           <div class="item-list" data-cat-name="${cat.name}">
@@ -475,7 +489,7 @@
     new Sortable(categoryListEl, {
       animation: 150,
       handle: '.category-header',
-      filter: '.btn-del-cat', // 防止拖拽时触发删除
+      filter: '.btn-del-cat',
       ghostClass: 'sortable-ghost',
       onEnd: async function () {
         const catEls = categoryListEl.querySelectorAll('.category-group');
@@ -521,12 +535,14 @@
     }
   }
 
-  // ====== 侧边栏交互逻辑 ======
+  // ====== 侧边栏交互逻辑 (修复单双击冲突) ======
+  let clickTimer = null;
+
   categoryListEl.addEventListener('click', async (e) => {
-    // 处理删除分类逻辑
+    // 1. 处理删除分类
     const delBtn = e.target.closest('.btn-del-cat');
     if (delBtn) {
-      e.stopPropagation(); // 阻止触发折叠
+      e.stopPropagation();
       const catName = delBtn.dataset.catName;
       const catItems = items.filter(i => (i.category || '未分类内容') === catName);
       
@@ -544,14 +560,7 @@
       return;
     }
 
-    // 点击折叠/展开
-    const header = e.target.closest('.category-header');
-    if (header && !e.target.classList.contains('cat-name')) {
-      header.parentElement.classList.toggle('collapsed');
-      return;
-    }
-
-    // 点击事项卡片
+    // 2. 点击事项卡片
     const card = e.target.closest('.item-card');
     if (card) {
       const id = Number(card.dataset.id);
@@ -559,12 +568,26 @@
         if (!confirm('当前有未保存的修改，确定切换吗？')) return;
       }
       openEditor(id);
+      return;
+    }
+
+    // 3. 点击分类标题行（包括箭头、文字、空白处）触发折叠/展开（使用防抖延迟区分双击）
+    const header = e.target.closest('.category-header');
+    if (header) {
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => {
+        header.parentElement.classList.toggle('collapsed');
+      }, 200);
     }
   });
 
+  // 4. 双击分类名称重命名
   categoryListEl.addEventListener('dblclick', async (e) => {
-    if (e.target.classList.contains('cat-name')) {
-      const group = e.target.closest('.category-group');
+    const nameEl = e.target.closest('.cat-name');
+    if (nameEl) {
+      clearTimeout(clickTimer); // 阻止单击触发的折叠
+      
+      const group = nameEl.closest('.category-group');
       const oldName = group.dataset.catName;
       const newName = prompt('修改分类名称：', oldName);
       
