@@ -69,10 +69,17 @@
     padding: 4px 6px; cursor: pointer; user-select: none;
     border-bottom: 1px solid var(--pink-soft);
   }
-  .category-header span.count { font-size: 0.75rem; font-weight: normal; color: var(--pink-muted); margin-left: auto; margin-right: 8px; }
+  .category-header span.count { font-size: 0.75rem; font-weight: normal; color: var(--pink-muted); margin-left: auto; margin-right: 4px; }
   .category-header svg { width: 12px; height: 12px; transition: transform 0.2s; fill: var(--pink-main); }
   .category-group.collapsed .category-header svg { transform: rotate(-90deg); }
   .category-group.collapsed .item-list { display: none; }
+
+  /* 删除分类按钮 */
+  .btn-del-cat {
+    font-size: 16px; font-weight: bold; color: var(--pink-muted); cursor: pointer;
+    padding: 0 6px; border-radius: 4px; line-height: 1; opacity: 0.6; transition: all 0.2s;
+  }
+  .btn-del-cat:hover { color: #9e4f5d; background: rgba(217, 154, 166, 0.2); opacity: 1; }
 
   .item-list { display: flex; flex-direction: column; gap: 6px; min-height: 10px; padding-bottom: 5px; }
   .item-card {
@@ -86,8 +93,6 @@
   
   /* 拖拽时的幽灵样式 */
   .sortable-ghost { opacity: 0.4; background: var(--pink-soft); }
-  .drag-handle { cursor: grab; color: var(--pink-muted); padding: 0 4px; opacity: 0.3; transition: opacity 0.2s;}
-  .item-card:hover .drag-handle { opacity: 1; }
 
   /* 右侧主内容区 */
   .main-content {
@@ -411,7 +416,6 @@
     }
   }
 
-  // 加上这个 escapeHtml 函数 (就是之前漏掉的)
   function escapeHtml(str) {
     if (str == null) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -434,6 +438,8 @@
             <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
             <span class="cat-name" title="双击可重命名" style="cursor: text;">${cat.name}</span>
             <span class="count">${catItems.length}</span>
+            <!-- 增加了删除小按钮 -->
+            <span class="btn-del-cat" title="删除分类" data-cat-name="${cat.name}">×</span>
           </div>
           <div class="item-list" data-cat-name="${cat.name}">
             ${catItems.map(item => `
@@ -469,6 +475,7 @@
     new Sortable(categoryListEl, {
       animation: 150,
       handle: '.category-header',
+      filter: '.btn-del-cat', // 防止拖拽时触发删除
       ghostClass: 'sortable-ghost',
       onEnd: async function () {
         const catEls = categoryListEl.querySelectorAll('.category-group');
@@ -515,13 +522,36 @@
   }
 
   // ====== 侧边栏交互逻辑 ======
-  categoryListEl.addEventListener('click', (e) => {
+  categoryListEl.addEventListener('click', async (e) => {
+    // 处理删除分类逻辑
+    const delBtn = e.target.closest('.btn-del-cat');
+    if (delBtn) {
+      e.stopPropagation(); // 阻止触发折叠
+      const catName = delBtn.dataset.catName;
+      const catItems = items.filter(i => (i.category || '未分类内容') === catName);
+      
+      if (catItems.length > 0) {
+        showToast('该分类下还有事务，请先拖拽到其他分类或删除');
+        return;
+      }
+      
+      if (confirm(`确定删除“${catName}”这个空分类吗？`)) {
+        const { error } = await supabaseClient.from('shop_categories').delete().eq('name', catName);
+        if (error) return showToast('删除失败：' + error.message);
+        showToast('分类已删除');
+        loadData();
+      }
+      return;
+    }
+
+    // 点击折叠/展开
     const header = e.target.closest('.category-header');
     if (header && !e.target.classList.contains('cat-name')) {
       header.parentElement.classList.toggle('collapsed');
       return;
     }
 
+    // 点击事项卡片
     const card = e.target.closest('.item-card');
     if (card) {
       const id = Number(card.dataset.id);
