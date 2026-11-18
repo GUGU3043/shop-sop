@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>店铺事务 SOP 管理</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --pink-bg: #fdf2f4;
+    --pink-soft: #f9e4e8;
+    --pink-main: #d99aa6;
+    --pink-deep: #b87382;
+    --pink-text: #5c4048;
+    --pink-muted: #9b7a82;
+    --white: #ffffff;
+    --radius-lg: 22px;
+    --radius-md: 16px;
+    --radius-sm: 12px;
+    --shadow: 0 8px 28px rgba(185, 115, 130, 0.12);
+    --shadow-soft: 0 2px 10px rgba(185, 115, 130, 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--pink-bg); color: var(--pink-text); min-height: 100vh; padding: 20px 16px 48px; line-height: 1.6;
+  }
+
+  .app { max-width: 1200px; margin: 0 auto; }
+  .header { text-align: center; padding: 18px 0 22px; }
+  .header h1 { font-size: 1.55rem; font-weight: 600; letter-spacing: 0.5px; color: var(--pink-deep); }
+  .header p { margin-top: 6px; font-size: 0.85rem; color: var(--pink-muted); }
+
+  .btn {
+    border: none; border-radius: var(--radius-md); padding: 10px 18px; font-size: 0.9rem;
+    font-weight: 500; cursor: pointer; transition: background 0.18s, transform 0.12s, box-shadow 0.18s; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--pink-main); color: var(--white); box-shadow: 0 4px 14px rgba(217, 154, 166, 0.35); }
+  .btn-primary:hover { background: var(--pink-deep); }
+  .btn-ghost { background: var(--white); color: var(--pink-deep); box-shadow: var(--shadow-soft); border: 1px solid var(--pink-soft); }
+  .btn-ghost:hover { background: var(--pink-soft); }
+  .btn-danger { background: #f6d9dd; color: #9e4f5d; }
+  .btn-danger:hover { background: #efc4ca; }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: var(--radius-sm); }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* 布局 */
+  .layout { display: flex; gap: 20px; align-items: stretch; }
+  
+  /* 左侧边栏 */
+  .sidebar {
+    width: 300px; flex-shrink: 0; background: var(--white); border-radius: var(--radius-lg);
+    padding: 16px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 12px;
+    max-height: calc(100vh - 120px); position: sticky; top: 20px;
+  }
+  .sidebar-header { display: flex; flex-direction: column; gap: 10px; }
+  .sidebar-header .btn { width: 100%; }
+  
+  .item-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; padding-right: 4px; }
+  .item-card {
+    background: #fffafb; border: 1.5px solid transparent; border-radius: var(--radius-md);
+    padding: 12px 14px; cursor: pointer; transition: all 0.2s;
+  }
+  .item-card:hover { background: var(--pink-soft); }
+  .item-card.active { border-color: var(--pink-main); background: var(--pink-soft); box-shadow: inset 0 0 0 1px var(--pink-main); }
+  .item-name { font-size: 0.95rem; font-weight: 600; color: var(--pink-text); word-break: break-word; }
+  .item-owner { margin-top: 4px; font-size: 0.8rem; color: var(--pink-muted); }
+
+  /* 右侧主内容区 */
+  .main-content {
+    flex: 1; background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft);
+    padding: 24px; display: flex; flex-direction: column; min-height: calc(100vh - 120px);
+  }
+
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--pink-muted); font-size: 0.95rem; text-align: center;
+  }
+  .empty-state svg { width: 60px; height: 60px; margin-bottom: 12px; opacity: 0.5; fill: var(--pink-main); }
+
+  /* 编辑器区域 */
+  .editor-wrapper { display: flex; flex-direction: column; height: 100%; }
+  .editor-header {
+    display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px;
+    border-bottom: 1.5px solid var(--pink-soft); margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+  }
+  .editor-title-area h2 { font-size: 1.25rem; color: var(--pink-deep); font-weight: 600; }
+  .editor-title-area p { font-size: 0.85rem; color: var(--pink-muted); margin-top: 4px; }
+  .editor-header-actions { display: flex; gap: 8px; flex-wrap: wrap;}
+
+  .toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  
+  /* 核心：分屏与预览 */
+  .editor-split { display: flex; gap: 16px; flex: 1; min-height: 500px; }
+  .editor-pane { flex: 1; display: flex; flex-direction: column; }
+  .preview-pane { flex: 1; display: flex; flex-direction: column; }
+  .pane-label { font-size: 0.85rem; font-weight: 600; color: var(--pink-muted); margin-bottom: 8px; }
+  
+  textarea#sopText {
+    flex: 1; width: 100%; border: 1.5px solid var(--pink-soft); border-radius: var(--radius-md);
+    padding: 14px; font-size: 0.92rem; font-family: inherit; color: var(--pink-text); background: #fffafb;
+    outline: none; resize: none; line-height: 1.6;
+  }
+  textarea#sopText:focus { border-color: var(--pink-main); background: var(--white); }
+
+  .sop-preview-box {
+    flex: 1; white-space: pre-wrap; font-size: 0.95rem; line-height: 1.7; color: var(--pink-text);
+    padding: 20px; background: #fffafb; border: 1.5px dashed var(--pink-soft);
+    border-radius: var(--radius-md); overflow-y: auto; word-break: break-word;
+  }
+  /* 图片预览自适应，点击可看大图 */
+  .sop-preview-box img { max-width: 100%; border-radius: 12px; margin: 12px 0; display: block; box-shadow: var(--shadow-soft); cursor: zoom-in;}
+  
+  /* 下载按钮的美化 */
+  .sop-preview-box .file-attachment { margin: 12px 0; }
+  .sop-preview-box .file-attachment a { 
+    color: var(--pink-deep); font-weight: 500; text-decoration: none; display: inline-flex; align-items: center;
+    padding: 10px 16px; background: var(--pink-soft); border-radius: var(--radius-sm); border: 1px solid var(--pink-main);
+    transition: background 0.2s;
+  }
+  .sop-preview-box .file-attachment a:hover { background: #efc4ca; }
+
+  .editor-footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px; }
+
+  /* 弹窗 (仅用于新增/编辑名称) */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(92, 64, 72, 0.35); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; padding: 18px; z-index: 100;
+  }
+  .modal-mask.hidden { display: none; }
+  .modal {
+    background: var(--white); border-radius: var(--radius-lg); width: 100%; max-width: 460px;
+    padding: 24px; box-shadow: 0 20px 50px rgba(92, 64, 72, 0.22); animation: popIn 0.2s ease;
+  }
+  @keyframes popIn { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  .modal h3 { font-size: 1.1rem; font-weight: 600; color: var(--pink-deep); margin-bottom: 18px; }
+
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 0.84rem; color: var(--pink-muted); margin-bottom: 6px; font-weight: 500; }
+  .field input[type="text"] {
+    width: 100%; border: 1.5px solid var(--pink-soft); border-radius: var(--radius-md); padding: 12px 14px;
+    font-size: 0.92rem; font-family: inherit; color: var(--pink-text); background: #fffafb; outline: none;
+  }
+  .field input[type="text"]:focus { border-color: var(--pink-main); background: var(--white); }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Toast 提示 */
+  .toast {
+    position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(12px);
+    background: var(--pink-deep); color: var(--white); padding: 10px 20px; border-radius: 999px; font-size: 0.86rem;
+    box-shadow: 0 8px 24px rgba(92, 64, 72, 0.25); opacity: 0; pointer-events: none; transition: opacity 0.22s, transform 0.22s; z-index: 200; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* 控制显隐的类 */
+  .d-none { display: none !important; }
+
+  /* 响应式 */
+  @media (max-width: 850px) {
+    .layout { flex-direction: column; }
+    .sidebar { width: 100%; max-height: 350px; position: static; }
+    .main-content { min-height: 600px; }
+    
+    /* 手机端编辑时分屏变上下 */
+    .editor-split.is-editing { flex-direction: column; }
+    textarea#sopText { min-height: 250px; }
+    .sop-preview-box { min-height: 250px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <h1>店铺事务 SOP 管理</h1>
+    <p>所有人共用一份清单 · 修改后刷新即可同步</p>
+  </div>
+
+  <div class="layout">
+    <!-- 左侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <button class="btn btn-primary" id="btnAdd">+ 新增事务</button>
+        <button class="btn btn-ghost" id="btnRefresh">刷新清单</button>
+      </div>
+      <div class="item-list" id="sidebarList">
+        <div class="empty-state" style="padding: 20px; font-size:0.8rem;">正在加载…</div>
+      </div>
+    </aside>
+
+    <!-- 右侧主内容区 -->
+    <main class="main-content" id="mainContent">
+      <div class="empty-state" id="welcomeState">
+        <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        请在左侧选择或新增一个事务，<br>开始编写 SOP
+      </div>
+
+      <!-- 编辑器区域 -->
+      <div class="editor-wrapper" id="editorWrapper" style="display:none;">
+        
+        <!-- 头部：标题和操作按钮 -->
+        <div class="editor-header">
+          <div class="editor-title-area">
+            <h2 id="curItemName">事务名称</h2>
+            <p id="curItemOwner">负责人：-</p>
+          </div>
+          <div class="editor-header-actions">
+            <!-- 阅读模式下的按钮 -->
+            <button class="btn btn-ghost btn-sm" id="btnEditSop">✏️ 编辑SOP</button>
+            <button class="btn btn-ghost btn-sm" id="btnEditItem">编辑信息</button>
+            <button class="btn btn-danger btn-sm" id="btnDeleteItem">删除</button>
+          </div>
+        </div>
+
+        <!-- 工具栏（只在编辑模式显示） -->
+        <div class="toolbar d-none" id="toolbar">
+          <button class="btn btn-ghost btn-sm" id="btnUploadImg" type="button">📷 插入图片</button>
+          <button class="btn btn-ghost btn-sm" id="btnUploadFile" type="button">📎 放置文件</button>
+          <input type="file" id="fileInput" style="display: none;">
+        </div>
+
+        <!-- 分屏区域 -->
+        <div class="editor-split" id="editorSplit">
+          <!-- 左侧源码编辑（只在编辑模式显示） -->
+          <div class="editor-pane d-none" id="editorPane">
+            <div class="pane-label">SOP 内容编辑（支持HTML）</div>
+            <textarea id="sopText" placeholder="填写该事项的标准操作流程，或点击上方按钮上传图文…"></textarea>
+          </div>
+          
+          <!-- 右侧实时预览（常驻显示） -->
+          <div class="preview-pane">
+            <div class="pane-label" id="previewLabel">SOP 预览</div>
+            <div class="sop-preview-box" id="sopPreview"></div>
+          </div>
+        </div>
+
+        <!-- 底部保存按钮（只在编辑模式显示） -->
+        <div class="editor-footer d-none" id="editorFooter">
+          <button class="btn btn-ghost" id="btnCancelEdit">取消</button>
+          <button class="btn btn-primary" id="sopSave">保存 SOP</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 新增/编辑事务弹窗 -->
+<div class="modal-mask hidden" id="itemModalMask">
+  <div class="modal">
+    <h3 id="itemModalTitle">新增事务</h3>
+    <div class="field">
+      <label>事务名称</label>
+      <input type="text" id="itemName" placeholder="例如：每日开店准备" maxlength="120">
+    </div>
+    <div class="field">
+      <label>负责人</label>
+      <input type="text" id="itemOwner" placeholder="例如：小王" maxlength="60">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="itemCancel">取消</button>
+      <button class="btn btn-primary" id="itemSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SUPABASE_URL = 'https://lfilxxjysleorholobhj.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmaWx4eGp5c2xlb3Job2xvYmhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5Njk3MzksImV4cCI6MjExMDU0NTczOX0.7sTjf2ybZEIm2n6-Q_c5tJ38yJW31p0WXVzmOuKcl5k';
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // 状态
+  let items = [];
+  let currentItemId = null;
+  let editingItemId = null;
+  let isEditing = false; // 核心状态：当前是否处于编辑模式
+
+  // DOM
+  const sidebarList = document.getElementById('sidebarList');
+  const btnAdd = document.getElementById('btnAdd');
+  const btnRefresh = document.getElementById('btnRefresh');
+  
+  const welcomeState = document.getElementById('welcomeState');
+  const editorWrapper = document.getElementById('editorWrapper');
+  const curItemName = document.getElementById('curItemName');
+  const curItemOwner = document.getElementById('curItemOwner');
+  
+  const btnEditSop = document.getElementById('btnEditSop');
+  const btnEditItem = document.getElementById('btnEditItem');
+  const btnDeleteItem = document.getElementById('btnDeleteItem');
+
+  const toolbar = document.getElementById('toolbar');
+  const editorSplit = document.getElementById('editorSplit');
+  const editorPane = document.getElementById('editorPane');
+  const previewLabel = document.getElementById('previewLabel');
+  const editorFooter = document.getElementById('editorFooter');
+
+  const sopText = document.getElementById('sopText');
+  const sopPreview = document.getElementById('sopPreview');
+  const sopSave = document.getElementById('sopSave');
+  const btnCancelEdit = document.getElementById('btnCancelEdit');
+  
+  const btnUploadImg = document.getElementById('btnUploadImg');
+  const btnUploadFile = document.getElementById('btnUploadFile');
+  const fileInput = document.getElementById('fileInput');
+
+  const itemModalMask = document.getElementById('itemModalMask');
+  const itemModalTitle = document.getElementById('itemModalTitle');
+  const itemNameInput = document.getElementById('itemName');
+  const itemOwnerInput = document.getElementById('itemOwner');
+  const itemCancel = document.getElementById('itemCancel');
+  const itemSave = document.getElementById('itemSave');
+
+  const toastEl = document.getElementById('toast');
+
+  // Toast
+  let toastTimer = null;
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+  }
+
+  // 数据请求
+  async function loadItems(keepSelection = false) {
+    if(!keepSelection) sidebarList.innerHTML = '<div style="padding:10px;font-size:0.8rem;color:var(--pink-muted);">正在加载…</div>';
+    
+    const { data, error } = await supabaseClient.from('shop_items').select('*').order('created_at', { ascending: true });
+    if (error) return showToast('加载失败：' + error.message);
+    
+    items = data || [];
+    renderSidebar();
+
+    if (currentItemId !== null) {
+      const exist = items.find(x => x.id === currentItemId);
+      if (!exist) {
+        closeEditor();
+      } else if (keepSelection && !isEditing) {
+        // 如果当前是只读状态刷新，静默更新右侧数据
+        sopText.value = exist.sop || '';
+        updatePreview();
+      }
+    }
+  }
+
+  // 渲染左侧列表
+  function renderSidebar() {
+    if (!items.length) {
+      sidebarList.innerHTML = '<div class="empty-state" style="padding:20px;font-size:0.85rem;">暂无事务</div>';
+      return;
+    }
+    sidebarList.innerHTML = items.map(item => `
+      <div class="item-card ${item.id === currentItemId ? 'active' : ''}" data-id="${item.id}">
+        <div class="item-name">${escapeHtml(item.name)}</div>
+        <div class="item-owner">负责人：<span>${escapeHtml(item.owner || '未指定')}</span></div>
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // 点击左侧卡片
+  sidebarList.addEventListener('click', (e) => {
+    const card = e.target.closest('.item-card');
+    if (!card) return;
+    const id = Number(card.dataset.id);
+    if (id !== currentItemId && isEditing) {
+      if (!confirm('当前有未保存的修改，确定切换吗？')) return;
+    }
+    openEditor(id);
+  });
+
+  // 打开右侧编辑器（默认只读）
+  function openEditor(id) {
+    const item = items.find(x => x.id === id);
+    if (!item) return;
+
+    currentItemId = id;
+    exitEditMode(); // 确保处于只读状态
+    
+    document.querySelectorAll('.item-card').forEach(c => c.classList.remove('active'));
+    const activeCard = document.querySelector(`.item-card[data-id="${id}"]`);
+    if(activeCard) activeCard.classList.add('active');
+
+    welcomeState.style.display = 'none';
+    editorWrapper.style.display = 'flex';
+    
+    curItemName.textContent = item.name;
+    curItemOwner.textContent = `负责人：${item.owner || '未指定'}`;
+    
+    sopText.value = item.sop || '';
+    updatePreview();
+  }
+
+  function closeEditor() {
+    currentItemId = null;
+    exitEditMode();
+    editorWrapper.style.display = 'none';
+    welcomeState.style.display = 'flex';
+    renderSidebar();
+  }
+
+  // 实时预览
+  function updatePreview() {
+    sopPreview.innerHTML = sopText.value;
+  }
+  sopText.addEventListener('input', updatePreview);
+
+  // ---- 模式切换 ----
+  function enterEditMode() {
+    isEditing = true;
+    btnEditSop.classList.add('d-none');
+    btnEditItem.classList.add('d-none');
+    btnDeleteItem.classList.add('d-none');
+    
+    toolbar.classList.remove('d-none');
+    editorPane.classList.remove('d-none');
+    editorFooter.classList.remove('d-none');
+    editorSplit.classList.add('is-editing');
+    
+    previewLabel.textContent = '实时预览（所见即所得）';
+    sopText.focus();
+  }
+
+  function exitEditMode() {
+    isEditing = false;
+    btnEditSop.classList.remove('d-none');
+    btnEditItem.classList.remove('d-none');
+    btnDeleteItem.classList.remove('d-none');
+    
+    toolbar.classList.add('d-none');
+    editorPane.classList.add('d-none');
+    editorFooter.classList.add('d-none');
+    editorSplit.classList.remove('is-editing');
+    
+    previewLabel.textContent = 'SOP 预览';
+  }
+
+  btnEditSop.addEventListener('click', enterEditMode);
+  
+  btnCancelEdit.addEventListener('click', () => {
+    const item = items.find(x => x.id === currentItemId);
+    if (item) {
+      sopText.value = item.sop || ''; // 还原未保存的修改
+      updatePreview();
+    }
+    exitEditMode();
+  });
+
+  // 文件上传
+  btnUploadImg.addEventListener('click', () => { fileInput.accept = 'image/*'; fileInput.click(); });
+  btnUploadFile.addEventListener('click', () => { fileInput.accept = ''; fileInput.click(); });
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const isImage = file.type.startsWith('image/');
+    const btn = isImage ? btnUploadImg : btnUploadFile;
+    const originalText = btn.textContent;
+    
+    btn.disabled = true;
+    btn.textContent = '上传中…';
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+    const { error } = await supabaseClient.storage.from('sop_files').upload(fileName, file);
+
+    if (error) {
+      showToast('上传失败：' + error.message);
+      btn.disabled = false;
+      btn.textContent = originalText;
+      return;
+    }
+
+    const { data } = supabaseClient.storage.from('sop_files').getPublicUrl(fileName);
+    const publicUrl = data.publicUrl;
+
+    let insertHtml = '';
+    if (isImage) {
+      insertHtml = `\n<img src="${publicUrl}" alt="${file.name}">\n`;
+    } else {
+      // 生成漂亮的下载按钮结构
+      insertHtml = `\n<div class="file-attachment"><a href="${publicUrl}" target="_blank">📥 下载文件：${file.name}</a></div>\n`;
+    }
+
+    const startPos = sopText.selectionStart;
+    const endPos = sopText.selectionEnd;
+    sopText.value = sopText.value.substring(0, startPos) + insertHtml + sopText.value.substring(endPos);
+    
+    sopText.focus();
+    sopText.selectionStart = sopText.selectionEnd = startPos + insertHtml.length;
+    updatePreview();
+
+    btn.disabled = false;
+    btn.textContent = originalText;
+    fileInput.value = ''; 
+    showToast('上传成功！已插入');
+  });
+
+  // 保存 SOP
+  sopSave.addEventListener('click', async () => {
+    if (currentItemId == null) return;
+    sopSave.disabled = true;
+    sopSave.textContent = '保存中…';
+
+    const { error } = await supabaseClient.from('shop_items').update({
+      sop: sopText.value,
+      updated_at: new Date().toISOString()
+    }).eq('id', currentItemId);
+
+    sopSave.disabled = false;
+    sopSave.textContent = '保存 SOP';
+
+    if (error) return showToast('保存失败：' + error.message);
+    
+    showToast('SOP 已保存');
+    exitEditMode(); // 保存后退回只读
+    await loadItems(true); 
+  });
+
+  // --- 新增/编辑弹窗逻辑 ---
+  btnAdd.addEventListener('click', () => {
+    editingItemId = null;
+    itemModalTitle.textContent = '新增事务';
+    itemNameInput.value = '';
+    itemOwnerInput.value = '';
+    itemModalMask.classList.remove('hidden');
+  });
+
+  btnEditItem.addEventListener('click', () => {
+    const item = items.find(x => x.id === currentItemId);
+    if (!item) return;
+    editingItemId = item.id;
+    itemModalTitle.textContent = '编辑事务信息';
+    itemNameInput.value = item.name;
+    itemOwnerInput.value = item.owner || '';
+    itemModalMask.classList.remove('hidden');
+  });
+
+  itemCancel.addEventListener('click', () => itemModalMask.classList.add('hidden'));
+  
+  itemSave.addEventListener('click', async () => {
+    const name = itemNameInput.value.trim();
+    const owner = itemOwnerInput.value.trim();
+    if (!name) return showToast('请填写名称');
+
+    itemSave.disabled = true;
+    itemSave.textContent = '保存中…';
+    let error;
+    if (editingItemId != null) {
+      ({ error } = await supabaseClient.from('shop_items').update({ name, owner }).eq('id', editingItemId));
+    } else {
+      ({ error } = await supabaseClient.from('shop_items').insert({ name, owner, sop: '' }));
+    }
+    itemSave.disabled = false;
+    itemSave.textContent = '保存';
+
+    if (error) return showToast('保存失败：' + error.message);
+    itemModalMask.classList.add('hidden');
+    showToast(editingItemId != null ? '已更新' : '已新增');
+    
+    if (editingItemId == null) {
+      await loadItems(); 
+    } else {
+      await loadItems(true);
+      openEditor(editingItemId); 
+    }
+  });
+
+  // 删除逻辑
+  btnDeleteItem.addEventListener('click', async () => {
+    const item = items.find(x => x.id === currentItemId);
+    if (!item || !confirm(`确定删除“${item.name}”吗？`)) return;
+    
+    const { error } = await supabaseClient.from('shop_items').delete().eq('id', currentItemId);
+    if (error) return showToast('删除失败：' + error.message);
+    
+    showToast('事务已删除');
+    closeEditor();
+    await loadItems();
+  });
+
+  btnRefresh.addEventListener('click', () => loadItems(true));
+
+  // 启动
+  loadItems();
+</script>
+</body>
+</html>
