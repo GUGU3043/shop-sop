@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>店铺事务 SOP 管理</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- 引入拖拽排序库 -->
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<!-- 引入拖拽排序库（已换国内加速节点） -->
+<script src="https://cdn.bootcdn.net/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <style>
   :root {
     --pink-bg: #fdf2f4;
@@ -89,7 +89,7 @@
   .drag-handle { cursor: grab; color: var(--pink-muted); padding: 0 4px; opacity: 0.3; transition: opacity 0.2s;}
   .item-card:hover .drag-handle { opacity: 1; }
 
-  /* 右侧主内容区 (完全复用之前的) */
+  /* 右侧主内容区 */
   .main-content {
     flex: 1; background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft);
     padding: 24px; display: flex; flex-direction: column; min-height: calc(100vh - 120px);
@@ -385,7 +385,6 @@
   async function loadData(isSilent = false) {
     if (!isSilent) categoryListEl.innerHTML = '<div style="padding:20px;text-align:center;font-size:0.8rem;color:var(--pink-muted);">正在加载…</div>';
     
-    // 同时获取分类和事项
     const [catRes, itemRes] = await Promise.all([
       supabaseClient.from('shop_categories').select('*').order('sort_order', { ascending: true }),
       supabaseClient.from('shop_items').select('*').order('sort_order', { ascending: true })
@@ -399,7 +398,6 @@
     
     renderSidebar();
 
-    // 如果当前右侧正在看某个事项，静默更新右侧状态
     if (currentItemId !== null) {
       const exist = items.find(x => x.id === currentItemId);
       if (!exist) {
@@ -413,6 +411,12 @@
     }
   }
 
+  // 加上这个 escapeHtml 函数 (就是之前漏掉的)
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   // ====== 渲染侧边栏 ======
   function renderSidebar() {
     if (categories.length === 0) {
@@ -422,7 +426,6 @@
 
     let html = '';
     categories.forEach(cat => {
-      // 筛选属于该分类的事项
       const catItems = items.filter(i => (i.category || '未分类内容') === cat.name);
       
       html += `
@@ -450,31 +453,22 @@
 
   // ====== 初始化拖拽 (Sortable.js) ======
   function initSortable() {
-    // 1. 允许事项在不同分类之间拖拽，也允许同一分类内上下排序
     document.querySelectorAll('.item-list').forEach(list => {
       new Sortable(list, {
-        group: 'shared', // 允许跨列表拖拽
+        group: 'shared',
         animation: 150,
         ghostClass: 'sortable-ghost',
         onEnd: async function (evt) {
-          // 获取拖拽后属于哪个分类
           const newCatName = evt.to.dataset.catName;
-          
-          // 如果跨了分类，更新界面上分类的计数
-          if (evt.from !== evt.to) {
-            updateCategoryCounts();
-          }
-
-          // 保存所有变更到数据库
+          if (evt.from !== evt.to) updateCategoryCounts();
           await saveSortOrderAndCategory(newCatName, evt.to);
         }
       });
     });
 
-    // 2. 允许分类本身上下拖拽排序
     new Sortable(categoryListEl, {
       animation: 150,
-      handle: '.category-header', // 只能按住标题栏拖拽
+      handle: '.category-header',
       ghostClass: 'sortable-ghost',
       onEnd: async function () {
         const catEls = categoryListEl.querySelectorAll('.category-group');
@@ -483,7 +477,6 @@
           const id = el.dataset.catId;
           updates.push({ id: Number(id), sort_order: index });
         });
-        // 批量更新分类排序
         for (let u of updates) {
           await supabaseClient.from('shop_categories').update({ sort_order: u.sort_order }).eq('id', u.id);
         }
@@ -492,7 +485,6 @@
     });
   }
 
-  // 更新分类上的数字
   function updateCategoryCounts() {
     document.querySelectorAll('.category-group').forEach(group => {
       const count = group.querySelectorAll('.item-card').length;
@@ -500,14 +492,12 @@
     });
   }
 
-  // 拖拽结束后，保存事项的排序和所属分类
   async function saveSortOrderAndCategory(catName, listEl) {
     const itemEls = listEl.querySelectorAll('.item-card');
     const updates = [];
     
     itemEls.forEach((el, index) => {
       const id = Number(el.dataset.id);
-      // 更新内存中的数据
       const item = items.find(x => x.id === id);
       if (item) {
         item.category = catName;
@@ -516,7 +506,6 @@
       updates.push({ id, category: catName, sort_order: index });
     });
 
-    // 批量更新到数据库
     for (let u of updates) {
       await supabaseClient.from('shop_items').update({ 
         category: u.category, 
@@ -527,14 +516,12 @@
 
   // ====== 侧边栏交互逻辑 ======
   categoryListEl.addEventListener('click', (e) => {
-    // 1. 点击折叠/展开
     const header = e.target.closest('.category-header');
     if (header && !e.target.classList.contains('cat-name')) {
       header.parentElement.classList.toggle('collapsed');
       return;
     }
 
-    // 2. 点击事项卡片
     const card = e.target.closest('.item-card');
     if (card) {
       const id = Number(card.dataset.id);
@@ -545,7 +532,6 @@
     }
   });
 
-  // 双击分类名重命名
   categoryListEl.addEventListener('dblclick', async (e) => {
     if (e.target.classList.contains('cat-name')) {
       const group = e.target.closest('.category-group');
@@ -554,16 +540,12 @@
       
       if (newName && newName.trim() !== '' && newName !== oldName) {
         const name = newName.trim();
-        // 更新表 1：分类表
         const { error: catErr } = await supabaseClient.from('shop_categories')
           .update({ name: name }).eq('name', oldName);
         
         if (catErr) return showToast('重命名失败：名称可能已存在');
         
-        // 更新表 2：把该分类下所有事项的分类名也改掉
-        await supabaseClient.from('shop_items')
-          .update({ category: name }).eq('category', oldName);
-
+        await supabaseClient.from('shop_items').update({ category: name }).eq('category', oldName);
         showToast('分类已重命名');
         loadData();
       }
@@ -585,7 +567,6 @@
     if (!name) return showToast('请填写分类名称');
     
     catSave.disabled = true;
-    // 获取当前分类最大排序值，加到末尾
     const maxSort = categories.length > 0 ? Math.max(...categories.map(c => c.sort_order)) : 0;
     
     const { error } = await supabaseClient.from('shop_categories').insert({ name: name, sort_order: maxSort + 1 });
@@ -609,7 +590,6 @@
     itemModalTitle.textContent = '新增事务';
     itemNameInput.value = '';
     itemOwnerInput.value = '';
-    // 默认选第一个分类
     populateCategorySelect(categories[0]?.name);
     itemModalMask.classList.remove('hidden');
   });
@@ -641,7 +621,6 @@
     if (editingItemId != null) {
       ({ error } = await supabaseClient.from('shop_items').update({ name, owner, category }).eq('id', editingItemId));
     } else {
-      // 新增时，放在当前分类列表的最底下
       const maxSort = items.filter(i => i.category === category).length;
       ({ error } = await supabaseClient.from('shop_items').insert({ name, owner, category, sort_order: maxSort, sop: '' }));
     }
@@ -652,11 +631,11 @@
     itemModalMask.classList.add('hidden');
     showToast(editingItemId != null ? '已更新' : '已新增');
     
-    await loadData(isEditing); // 如果是编辑，静默刷新
+    await loadData(isEditing);
     if (editingItemId != null) openEditor(editingItemId); 
   });
 
-  // ====== 右侧主编辑器逻辑 (复用之前的) ======
+  // ====== 右侧主编辑器逻辑 ======
   function openEditor(id) {
     const item = items.find(x => x.id === id);
     if (!item) return;
@@ -728,7 +707,7 @@
     exitEditMode();
   });
 
-  // 文件上传逻辑 (复用之前的)
+  // 文件上传逻辑
   async function handleFileUpload(file) {
     const isImage = file.type.startsWith('image/');
     showToast(isImage ? '正在上传图片…' : '正在上传文件…');
