@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>店铺事务 SOP 管理</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- 引入拖拽排序库（国内加速节点） -->
 <script src="https://cdn.bootcdn.net/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <style>
   :root {
@@ -47,11 +46,11 @@
   .btn-ghost:hover { background: var(--pink-soft); }
   .btn-danger { background: #f6d9dd; color: #9e4f5d; }
   .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: var(--radius-sm); }
-  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
   .layout { display: flex; gap: 20px; align-items: stretch; }
   
-  /* 侧边栏样式 */
+  /* 侧边栏 */
   .sidebar {
     width: 320px; flex-shrink: 0; background: var(--white); border-radius: var(--radius-lg);
     padding: 16px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 12px;
@@ -62,37 +61,22 @@
   
   .category-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; padding-right: 4px; }
   
-  /* 分类标题行优化 */
   .category-group { display: flex; flex-direction: column; gap: 6px; }
   .category-header {
-    display: flex; align-items: center;
-    font-size: 0.95rem; font-weight: 600; color: var(--pink-deep);
-    padding: 8px 6px; cursor: pointer; user-select: none;
-    border-bottom: 1px solid var(--pink-soft);
+    display: flex; align-items: center; font-size: 0.95rem; font-weight: 600; color: var(--pink-deep);
+    padding: 8px 6px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--pink-soft);
     transition: background 0.2s; border-radius: 8px;
   }
   .category-header:hover { background: var(--pink-soft); }
-  
-  /* 放大箭头，并加上右侧间距 */
-  .category-header svg { 
-    width: 18px; height: 18px; margin-right: 6px; flex-shrink: 0;
-    transition: transform 0.2s; fill: var(--pink-main); 
-  }
+  .category-header svg { width: 18px; height: 18px; margin-right: 6px; flex-shrink: 0; transition: transform 0.2s; fill: var(--pink-main); }
   .category-group.collapsed .category-header svg { transform: rotate(-90deg); }
   .category-group.collapsed .item-list { display: none; }
-
-  /* 分类名称占满剩余空间，方便点击 */
   .cat-name { flex: 1; cursor: pointer; }
+  .category-header span.count { font-size: 0.8rem; font-weight: normal; color: var(--pink-muted); margin-right: 8px; }
   
-  .category-header span.count { 
-    font-size: 0.8rem; font-weight: normal; color: var(--pink-muted); margin-right: 8px; 
-  }
-
-  /* 删除分类按钮 */
   .btn-del-cat {
     font-size: 18px; font-weight: bold; color: var(--pink-muted); cursor: pointer;
     padding: 0 6px; border-radius: 4px; line-height: 1; opacity: 0.4; transition: all 0.2s;
-    display: flex; align-items: center; justify-content: center;
   }
   .btn-del-cat:hover { color: #9e4f5d; background: rgba(217, 154, 166, 0.2); opacity: 1; }
 
@@ -106,7 +90,6 @@
   .item-name { font-size: 0.9rem; font-weight: 600; color: var(--pink-text); word-break: break-word; pointer-events: none; }
   .item-owner { margin-top: 2px; font-size: 0.75rem; color: var(--pink-muted); pointer-events: none; }
   
-  /* 拖拽时的幽灵样式 */
   .sortable-ghost { opacity: 0.4; background: var(--pink-soft); }
 
   /* 右侧主内容区 */
@@ -229,6 +212,7 @@
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-ghost btn-sm" style="flex:1" id="btnAddCategory">+ 分类</button>
           <button class="btn btn-ghost btn-sm" style="flex:1" id="btnRefresh">刷新</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" id="btnExportAll" title="导出全部SOP为HTML文件">导出</button>
         </div>
       </div>
       
@@ -263,7 +247,7 @@
           <button class="btn btn-ghost btn-sm" id="btnUploadImg" type="button">📷 上传</button>
           <button class="btn btn-ghost btn-sm" id="btnUploadFile" type="button">📎 文件</button>
           <input type="file" id="fileInput" style="display: none;">
-          <span class="toolbar-hint">支持直接按 Ctrl+V 粘贴图片</span>
+          <span class="toolbar-hint">支持直接按 Ctrl+V 粘贴图片（最大 3MB）</span>
         </div>
 
         <div class="editor-split" id="editorSplit">
@@ -338,21 +322,22 @@
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxmaWx4eGp5c2xlb3Job2xvYmhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5Njk3MzksImV4cCI6MjExMDU0NTczOX0.7sTjf2ybZEIm2n6-Q_c5tJ38yJW31p0WXVzmOuKcl5k';
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // 数据状态
+  // 状态与并发锁
   let categories = [];
   let items = [];
   let currentItemId = null;
   let isEditing = false;
   let editingItemId = null;
   let editingCatId = null;
+  let isProcessing = false; // 核心请求锁
 
-  // DOM (侧边栏相关)
+  // DOM
   const categoryListEl = document.getElementById('categoryList');
   const btnAdd = document.getElementById('btnAdd');
   const btnAddCategory = document.getElementById('btnAddCategory');
   const btnRefresh = document.getElementById('btnRefresh');
+  const btnExportAll = document.getElementById('btnExportAll');
   
-  // DOM (右侧主编辑器相关)
   const welcomeState = document.getElementById('welcomeState');
   const editorWrapper = document.getElementById('editorWrapper');
   const curItemName = document.getElementById('curItemName');
@@ -375,7 +360,6 @@
   const imageLightbox = document.getElementById('imageLightbox');
   const lightboxImg = document.getElementById('lightboxImg');
 
-  // DOM (事务弹窗)
   const itemModalMask = document.getElementById('itemModalMask');
   const itemModalTitle = document.getElementById('itemModalTitle');
   const itemCategorySelect = document.getElementById('itemCategorySelect');
@@ -384,7 +368,6 @@
   const itemCancel = document.getElementById('itemCancel');
   const itemSave = document.getElementById('itemSave');
 
-  // DOM (分类弹窗)
   const catModalMask = document.getElementById('catModalMask');
   const catModalTitle = document.getElementById('catModalTitle');
   const catNameInput = document.getElementById('catName');
@@ -398,7 +381,7 @@
     toastEl.textContent = message;
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2500);
   }
 
   // ====== 数据加载 ======
@@ -423,8 +406,6 @@
       if (!exist) {
         closeEditor();
       } else if (!isEditing && isSilent) {
-        sopText.value = exist.sop || '';
-        updatePreview();
         curItemName.textContent = exist.name;
         curItemOwner.textContent = `负责人：${exist.owner || '未指定'}`;
       }
@@ -471,14 +452,13 @@
     initSortable();
   }
 
-  // ====== 初始化拖拽 (Sortable.js) ======
+  // ====== 初始化拖拽 ======
   function initSortable() {
     document.querySelectorAll('.item-list').forEach(list => {
       new Sortable(list, {
-        group: 'shared',
-        animation: 150,
-        ghostClass: 'sortable-ghost',
+        group: 'shared', animation: 150, ghostClass: 'sortable-ghost',
         onEnd: async function (evt) {
+          if (isProcessing) return;
           const newCatName = evt.to.dataset.catName;
           if (evt.from !== evt.to) updateCategoryCounts();
           await saveSortOrderAndCategory(newCatName, evt.to);
@@ -487,20 +467,13 @@
     });
 
     new Sortable(categoryListEl, {
-      animation: 150,
-      handle: '.category-header',
-      filter: '.btn-del-cat',
-      ghostClass: 'sortable-ghost',
+      animation: 150, handle: '.category-header', filter: '.btn-del-cat', ghostClass: 'sortable-ghost',
       onEnd: async function () {
+        if (isProcessing) return;
         const catEls = categoryListEl.querySelectorAll('.category-group');
         const updates = [];
-        catEls.forEach((el, index) => {
-          const id = el.dataset.catId;
-          updates.push({ id: Number(id), sort_order: index });
-        });
-        for (let u of updates) {
-          await supabaseClient.from('shop_categories').update({ sort_order: u.sort_order }).eq('id', u.id);
-        }
+        catEls.forEach((el, index) => updates.push({ id: Number(el.dataset.catId), sort_order: index }));
+        for (let u of updates) await supabaseClient.from('shop_categories').update({ sort_order: u.sort_order }).eq('id', u.id);
         showToast('分类排序已保存');
       }
     });
@@ -508,130 +481,87 @@
 
   function updateCategoryCounts() {
     document.querySelectorAll('.category-group').forEach(group => {
-      const count = group.querySelectorAll('.item-card').length;
-      group.querySelector('.count').textContent = count;
+      group.querySelector('.count').textContent = group.querySelectorAll('.item-card').length;
     });
   }
 
   async function saveSortOrderAndCategory(catName, listEl) {
     const itemEls = listEl.querySelectorAll('.item-card');
     const updates = [];
-    
     itemEls.forEach((el, index) => {
       const id = Number(el.dataset.id);
       const item = items.find(x => x.id === id);
-      if (item) {
-        item.category = catName;
-        item.sort_order = index;
-      }
+      if (item) { item.category = catName; item.sort_order = index; }
       updates.push({ id, category: catName, sort_order: index });
     });
-
-    for (let u of updates) {
-      await supabaseClient.from('shop_items').update({ 
-        category: u.category, 
-        sort_order: u.sort_order 
-      }).eq('id', u.id);
-    }
+    for (let u of updates) await supabaseClient.from('shop_items').update({ category: u.category, sort_order: u.sort_order }).eq('id', u.id);
   }
 
-  // ====== 侧边栏交互逻辑 (修复单双击冲突) ======
+  // ====== 侧边栏交互 ======
   let clickTimer = null;
-
   categoryListEl.addEventListener('click', async (e) => {
-    // 1. 处理删除分类
     const delBtn = e.target.closest('.btn-del-cat');
     if (delBtn) {
       e.stopPropagation();
       const catName = delBtn.dataset.catName;
-      const catItems = items.filter(i => (i.category || '未分类内容') === catName);
-      
-      if (catItems.length > 0) {
-        showToast('该分类下还有事务，请先拖拽到其他分类或删除');
-        return;
-      }
-      
+      if (items.filter(i => (i.category || '未分类内容') === catName).length > 0) return showToast('该分类下还有事务，请先移走');
       if (confirm(`确定删除“${catName}”这个空分类吗？`)) {
         const { error } = await supabaseClient.from('shop_categories').delete().eq('name', catName);
         if (error) return showToast('删除失败：' + error.message);
-        showToast('分类已删除');
-        loadData();
+        showToast('分类已删除'); loadData();
       }
       return;
     }
 
-    // 2. 点击事项卡片
     const card = e.target.closest('.item-card');
     if (card) {
       const id = Number(card.dataset.id);
-      if (id !== currentItemId && isEditing) {
-        if (!confirm('当前有未保存的修改，确定切换吗？')) return;
-      }
+      if (id !== currentItemId && isEditing && !confirm('当前有未保存的修改，确定切换吗？')) return;
       openEditor(id);
       return;
     }
 
-    // 3. 点击分类标题行（包括箭头、文字、空白处）触发折叠/展开（使用防抖延迟区分双击）
     const header = e.target.closest('.category-header');
     if (header) {
       clearTimeout(clickTimer);
-      clickTimer = setTimeout(() => {
-        header.parentElement.classList.toggle('collapsed');
-      }, 200);
+      clickTimer = setTimeout(() => header.parentElement.classList.toggle('collapsed'), 200);
     }
   });
 
-  // 4. 双击分类名称重命名
   categoryListEl.addEventListener('dblclick', async (e) => {
     const nameEl = e.target.closest('.cat-name');
     if (nameEl) {
-      clearTimeout(clickTimer); // 阻止单击触发的折叠
-      
+      clearTimeout(clickTimer);
       const group = nameEl.closest('.category-group');
       const oldName = group.dataset.catName;
       const newName = prompt('修改分类名称：', oldName);
       
       if (newName && newName.trim() !== '' && newName !== oldName) {
         const name = newName.trim();
-        const { error: catErr } = await supabaseClient.from('shop_categories')
-          .update({ name: name }).eq('name', oldName);
-        
+        const { error: catErr } = await supabaseClient.from('shop_categories').update({ name }).eq('name', oldName);
         if (catErr) return showToast('重命名失败：名称可能已存在');
-        
         await supabaseClient.from('shop_items').update({ category: name }).eq('category', oldName);
-        showToast('分类已重命名');
-        loadData();
+        showToast('分类已重命名'); loadData();
       }
     }
   });
 
-  // ====== 弹窗逻辑 (分类) ======
+  // ====== 新增/编辑弹窗 ======
   btnAddCategory.addEventListener('click', () => {
-    editingCatId = null;
-    catModalTitle.textContent = '新增分类';
-    catNameInput.value = '';
-    catModalMask.classList.remove('hidden');
+    editingCatId = null; catModalTitle.textContent = '新增分类'; catNameInput.value = ''; catModalMask.classList.remove('hidden');
   });
-
   catCancel.addEventListener('click', () => catModalMask.classList.add('hidden'));
-  
   catSave.addEventListener('click', async () => {
     const name = catNameInput.value.trim();
     if (!name) return showToast('请填写分类名称');
-    
-    catSave.disabled = true;
+    if (isProcessing) return; isProcessing = true; catSave.disabled = true;
     const maxSort = categories.length > 0 ? Math.max(...categories.map(c => c.sort_order)) : 0;
-    
-    const { error } = await supabaseClient.from('shop_categories').insert({ name: name, sort_order: maxSort + 1 });
-    catSave.disabled = false;
-    
+    const { error } = await supabaseClient.from('shop_categories').insert({ name, sort_order: maxSort + 1 });
+    catSave.disabled = false; isProcessing = false;
     if (error) return showToast('新增失败：' + error.message);
-    catModalMask.classList.add('hidden');
-    showToast('分类已新增');
-    loadData();
+    catModalMask.classList.add('hidden'); showToast('分类已新增'); loadData();
   });
 
-  // ====== 弹窗逻辑 (事项) ======
   function populateCategorySelect(selectedName) {
     itemCategorySelect.innerHTML = categories.map(c => 
       `<option value="${c.name}" ${c.name === selectedName ? 'selected' : ''}>${c.name}</option>`
@@ -639,36 +569,36 @@
   }
 
   btnAdd.addEventListener('click', () => {
-    editingItemId = null;
-    itemModalTitle.textContent = '新增事务';
-    itemNameInput.value = '';
-    itemOwnerInput.value = '';
+    if (categories.length === 0) return showToast('请先在左侧点击 [+ 分类] 创建分类！');
+    editingItemId = null; itemModalTitle.textContent = '新增事务';
+    itemNameInput.value = ''; itemOwnerInput.value = '';
     populateCategorySelect(categories[0]?.name);
     itemModalMask.classList.remove('hidden');
+    itemSave.disabled = false;
   });
 
   btnEditItem.addEventListener('click', () => {
     const item = items.find(x => x.id === currentItemId);
     if (!item) return;
-    editingItemId = item.id;
-    itemModalTitle.textContent = '编辑事务信息';
-    itemNameInput.value = item.name;
-    itemOwnerInput.value = item.owner || '';
+    editingItemId = item.id; itemModalTitle.textContent = '编辑事务信息';
+    itemNameInput.value = item.name; itemOwnerInput.value = item.owner || '';
     populateCategorySelect(item.category || '未分类内容');
     itemModalMask.classList.remove('hidden');
+    itemSave.disabled = false;
   });
 
   itemCancel.addEventListener('click', () => itemModalMask.classList.add('hidden'));
 
   itemSave.addEventListener('click', async () => {
+    if (isProcessing) return;
     const name = itemNameInput.value.trim();
     const owner = itemOwnerInput.value.trim();
     const category = itemCategorySelect.value;
     
     if (!name) return showToast('请填写名称');
+    if (!category) return showToast('请先选择分类');
 
-    itemSave.disabled = true;
-    itemSave.textContent = '保存中…';
+    isProcessing = true; itemSave.disabled = true; itemSave.textContent = '保存中…';
     let error;
     
     if (editingItemId != null) {
@@ -677,75 +607,73 @@
       const maxSort = items.filter(i => i.category === category).length;
       ({ error } = await supabaseClient.from('shop_items').insert({ name, owner, category, sort_order: maxSort, sop: '' }));
     }
-    itemSave.disabled = false;
-    itemSave.textContent = '保存';
+    
+    itemSave.disabled = false; itemSave.textContent = '保存'; isProcessing = false;
 
     if (error) return showToast('保存失败：' + error.message);
-    itemModalMask.classList.add('hidden');
-    showToast(editingItemId != null ? '已更新' : '已新增');
-    
+    itemModalMask.classList.add('hidden'); showToast(editingItemId != null ? '已更新' : '已新增');
     await loadData(isEditing);
     if (editingItemId != null) openEditor(editingItemId); 
   });
 
-  // ====== 右侧主编辑器逻辑 ======
+  // ====== 编辑器逻辑 ======
   function openEditor(id) {
     const item = items.find(x => x.id === id);
     if (!item) return;
 
-    currentItemId = id;
-    exitEditMode();
+    currentItemId = id; exitEditMode();
     
     document.querySelectorAll('.item-card').forEach(c => c.classList.remove('active'));
     const activeCard = document.querySelector(`.item-card[data-id="${id}"]`);
     if(activeCard) activeCard.classList.add('active');
 
-    welcomeState.style.display = 'none';
-    editorWrapper.style.display = 'flex';
+    welcomeState.style.display = 'none'; editorWrapper.style.display = 'flex';
+    curItemName.textContent = item.name; curItemOwner.textContent = `负责人：${item.owner || '未指定'}`;
     
-    curItemName.textContent = item.name;
-    curItemOwner.textContent = `负责人：${item.owner || '未指定'}`;
-    
-    sopText.value = item.sop || '';
+    // ✨ 加载本地草稿机制
+    const draft = localStorage.getItem('draft_' + id);
+    if (draft !== null && draft !== item.sop) {
+      sopText.value = draft;
+      showToast('已恢复未保存的本地草稿');
+    } else {
+      sopText.value = item.sop || '';
+      localStorage.removeItem('draft_' + id); // 清理残留
+    }
     updatePreview();
   }
 
   function closeEditor() {
-    currentItemId = null;
-    exitEditMode();
-    editorWrapper.style.display = 'none';
-    welcomeState.style.display = 'flex';
+    currentItemId = null; exitEditMode();
+    editorWrapper.style.display = 'none'; welcomeState.style.display = 'flex';
   }
 
   function updatePreview() { sopPreview.innerHTML = sopText.value; }
-  sopText.addEventListener('input', updatePreview);
+
+  // ✨ 自动保存本地草稿
+  let draftTimer = null;
+  sopText.addEventListener('input', () => {
+    updatePreview();
+    if (!currentItemId) return;
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      localStorage.setItem('draft_' + currentItemId, sopText.value);
+    }, 500); // 500ms防抖
+  });
 
   function enterEditMode() {
     isEditing = true;
-    btnEditSop.classList.add('d-none');
-    btnEditItem.classList.add('d-none');
-    btnDeleteItem.classList.add('d-none');
-    
-    toolbar.classList.remove('d-none');
-    editorPane.classList.remove('d-none');
-    editorFooter.classList.remove('d-none');
+    btnEditSop.classList.add('d-none'); btnEditItem.classList.add('d-none'); btnDeleteItem.classList.add('d-none');
+    toolbar.classList.remove('d-none'); editorPane.classList.remove('d-none'); editorFooter.classList.remove('d-none');
     editorSplit.classList.add('is-editing');
-    
     previewLabel.innerHTML = '实时预览（所见即所得） <span class="toolbar-hint">可直接拖拽到此区域</span>';
     sopText.focus();
   }
 
   function exitEditMode() {
     isEditing = false;
-    btnEditSop.classList.remove('d-none');
-    btnEditItem.classList.remove('d-none');
-    btnDeleteItem.classList.remove('d-none');
-    
-    toolbar.classList.add('d-none');
-    editorPane.classList.add('d-none');
-    editorFooter.classList.add('d-none');
+    btnEditSop.classList.remove('d-none'); btnEditItem.classList.remove('d-none'); btnDeleteItem.classList.remove('d-none');
+    toolbar.classList.add('d-none'); editorPane.classList.add('d-none'); editorFooter.classList.add('d-none');
     editorSplit.classList.remove('is-editing');
-    
     previewLabel.textContent = 'SOP 预览';
   }
 
@@ -755,22 +683,31 @@
     const item = items.find(x => x.id === currentItemId);
     if (item) {
       sopText.value = item.sop || '';
+      localStorage.removeItem('draft_' + currentItemId); // 放弃草稿
       updatePreview();
     }
     exitEditMode();
   });
 
-  // 文件上传逻辑
+  // ====== 上传与文件校验 ======
   async function handleFileUpload(file) {
+    if (isProcessing) return;
+
+    // ✨ 1. 大小校验 (3MB)
+    if (file.size > 3 * 1024 * 1024) {
+      return showToast('文件太大了，不能超过 3MB！');
+    }
+
+    isProcessing = true;
     const isImage = file.type.startsWith('image/');
     showToast(isImage ? '正在上传图片…' : '正在上传文件…');
     
     let fileExt = 'png';
     if (file.name && file.name.includes('.')) fileExt = file.name.split('.').pop();
-    
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+    
     const { error } = await supabaseClient.storage.from('sop_files').upload(fileName, file);
-    if (error) return showToast('上传失败：' + error.message);
+    if (error) { isProcessing = false; return showToast('上传失败：' + error.message); }
 
     const { data } = supabaseClient.storage.from('sop_files').getPublicUrl(fileName);
     let insertHtml = isImage 
@@ -779,9 +716,15 @@
 
     const startPos = sopText.selectionStart;
     sopText.value = sopText.value.substring(0, startPos) + insertHtml + sopText.value.substring(sopText.selectionEnd);
+    
+    // 手动触发一次草稿保存
+    localStorage.setItem('draft_' + currentItemId, sopText.value);
+    
     sopText.focus();
     sopText.selectionStart = sopText.selectionEnd = startPos + insertHtml.length;
     updatePreview();
+    
+    isProcessing = false;
     showToast('上传成功！已插入');
   }
 
@@ -828,7 +771,11 @@
     });
   });
 
+  // ✨ ESC 快捷键处理
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      imageLightbox.style.display = 'none'; lightboxImg.src = '';
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       if (isEditing) { e.preventDefault(); sopSave.click(); }
     }
@@ -840,29 +787,104 @@
   imageLightbox.addEventListener('click', () => { imageLightbox.style.display = 'none'; lightboxImg.src = ''; });
 
   sopSave.addEventListener('click', async () => {
-    if (currentItemId == null) return;
-    sopSave.disabled = true;
-    sopSave.textContent = '保存中…';
+    if (currentItemId == null || isProcessing) return;
+    
+    isProcessing = true; sopSave.disabled = true; sopSave.textContent = '保存中…';
     const { error } = await supabaseClient.from('shop_items').update({ sop: sopText.value }).eq('id', currentItemId);
-    sopSave.disabled = false;
-    sopSave.textContent = '保存 SOP';
+    sopSave.disabled = false; sopSave.textContent = '保存 SOP'; isProcessing = false;
+    
     if (error) return showToast('保存失败：' + error.message);
+    
+    localStorage.removeItem('draft_' + currentItemId); // 保存成功后清理草稿
     showToast('SOP 已保存');
     exitEditMode();
     await loadData(true); 
   });
 
+  // ✨ 删除事务时，清理 Storage 文件
   btnDeleteItem.addEventListener('click', async () => {
+    if (isProcessing) return;
     const item = items.find(x => x.id === currentItemId);
-    if (!item || !confirm(`确定删除“${item.name}”吗？`)) return;
+    if (!item || !confirm(`确定删除“${item.name}”吗？（相关图片/文件也会被彻底删除）`)) return;
+    
+    isProcessing = true; btnDeleteItem.textContent = '清理中…';
+    
+    // 1. 提取并删除 Storage 文件
+    if (item.sop) {
+      const regex = /public\/sop_files\/([^"'\s>]+)/g;
+      let match; const fileNames = [];
+      while ((match = regex.exec(item.sop)) !== null) fileNames.push(decodeURIComponent(match[1]));
+      
+      const uniqueNames = [...new Set(fileNames)];
+      if (uniqueNames.length > 0) {
+        await supabaseClient.storage.from('sop_files').remove(uniqueNames);
+      }
+    }
+
+    // 2. 删除数据库记录
     const { error } = await supabaseClient.from('shop_items').delete().eq('id', currentItemId);
+    btnDeleteItem.textContent = '删除'; isProcessing = false;
+    
     if (error) return showToast('删除失败：' + error.message);
-    showToast('事务已删除');
+    showToast('事务及相关文件已删除');
+    
+    localStorage.removeItem('draft_' + currentItemId);
     closeEditor();
     await loadData();
   });
 
-  btnRefresh.addEventListener('click', () => loadData(true));
+  btnRefresh.addEventListener('click', () => { if(!isProcessing) loadData(true); });
+
+  // ✨ 导出全部 SOP
+  btnExportAll.addEventListener('click', () => {
+    if (isProcessing) return;
+    if (items.length === 0) return showToast('还没有任何事务，无法导出');
+
+    let htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>店铺SOP汇总备份</title>
+    <style>
+      body { font-family: sans-serif; padding: 40px; color: #333; line-height: 1.6; max-width: 800px; margin: 0 auto; background: #fafafa; }
+      h1 { color: #b87382; text-align: center; border-bottom: 2px solid #f9e4e8; padding-bottom: 10px; }
+      .category { margin-top: 30px; }
+      .category h2 { color: #d99aa6; border-left: 4px solid #d99aa6; padding-left: 10px; }
+      .item { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+      .item h3 { margin-top: 0; color: #5c4048; }
+      .owner { font-size: 0.9em; color: #888; margin-bottom: 15px; }
+      img { max-width: 100%; border-radius: 8px; }
+      .file-attachment a { color: #b87382; text-decoration: none; background: #fdf2f4; padding: 8px 12px; border-radius: 4px; display: inline-block;}
+    </style></head><body>
+    <h1>店铺事务 SOP 汇总备份</h1>
+    <p style="text-align:center;color:#888;">导出时间：${new Date().toLocaleString()}</p>`;
+
+    categories.forEach(cat => {
+      const catItems = items.filter(i => (i.category || '未分类内容') === cat.name);
+      if (catItems.length === 0) return; // 跳过空分类
+
+      htmlContent += `<div class="category"><h2>${escapeHtml(cat.name)}</h2>`;
+      catItems.forEach(item => {
+        htmlContent += `
+          <div class="item">
+            <h3>${escapeHtml(item.name)}</h3>
+            <div class="owner">负责人：${escapeHtml(item.owner || '未指定')}</div>
+            <div>${item.sop || '<span style="color:#ccc">暂无内容</span>'}</div>
+          </div>
+        `;
+      });
+      htmlContent += `</div>`;
+    });
+
+    htmlContent += `</body></html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `店铺SOP完整备份_${new Date().toISOString().slice(0,10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('导出成功！请在浏览器下载中查看');
+  });
 
   // 启动应用
   loadData();
